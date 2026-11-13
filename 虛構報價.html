@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>虛構報價與核准門檻檢核器</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+    body {
+      font-family: 'Noto Sans TC', sans-serif;
+      background-color: #f8fafc;
+    }
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+  </style>
+</head>
+<body class="text-slate-800 antialiased">
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    <!-- Header -->
+    <header class="mb-8 border-b border-slate-200 pb-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="px-2.5 py-0.5 text-xs font-semibold bg-indigo-100 text-indigo-700 rounded-full">規格實作與回歸測試工具</span>
+          <span class="text-xs text-slate-400">非公司政策或稅務建議</span>
+        </div>
+        <h1 class="text-2xl font-bold text-slate-900 mt-1">虛構報價規則 & 核准門檻檢核器</h1>
+        <p class="text-sm text-slate-500 mt-1">嚴格執行輸入防呆、分期尾差分配，以及與報價公式完全解耦的核准上限檢查。</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="loadPreset('Q04')" class="px-3 py-1.5 text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200 rounded-lg hover:bg-amber-100 transition">
+          載入 Q04 / Q10 範例 (超限)
+        </button>
+        <button onclick="loadPreset('Q01')" class="px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition">
+          載入 Q01 / Q11 範例 (限內)
+        </button>
+        <button onclick="loadPreset('INVALID')" class="px-3 py-1.5 text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200 rounded-lg hover:bg-rose-100 transition">
+          載入無效輸入測試
+        </button>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Left Column: Inputs -->
+      <div class="lg:col-span-5 space-y-6">
+        <!-- Card 1: Quote Parameters -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h2 class="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <span class="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center">1</span>
+            報價參數設定（計價引擎輸入）
+          </h2>
+
+          <div class="space-y-4">
+            <!-- Plan / Monthly Fee -->
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">方案月費（NT$）</label>
+              <div class="grid grid-cols-3 gap-2 mb-2">
+                <button type="button" onclick="setFee(30000)" class="fee-btn py-1.5 px-2 text-xs font-medium border rounded-lg hover:bg-slate-50 transition" data-val="30000">基礎 30,000</button>
+                <button type="button" onclick="setFee(60000)" class="fee-btn py-1.5 px-2 text-xs font-medium border rounded-lg hover:bg-slate-50 transition" data-val="60000">進階 60,000</button>
+                <button type="button" onclick="setFee(100000)" class="fee-btn py-1.5 px-2 text-xs font-medium border rounded-lg hover:bg-slate-50 transition" data-val="100000">客製 100,000</button>
+              </div>
+              <input type="number" id="monthlyFee" value="60000" placeholder="輸入月費（空值或負數將阻斷計算）"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" />
+              <p class="text-xs text-slate-400 mt-1">標準方案：30,000 / 60,000 / 100,000（支援自訂數值測試邊界防呆）</p>
+            </div>
+
+            <!-- Duration -->
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">合約期間（月數）</label>
+              <div class="grid grid-cols-4 gap-2">
+                <button type="button" onclick="setMonths(3)" class="month-btn py-2 text-xs font-medium border rounded-lg transition" data-val="3">3 個月</button>
+                <button type="button" onclick="setMonths(6)" class="month-btn py-2 text-xs font-medium border rounded-lg transition" data-val="6">6 個月</button>
+                <button type="button" onclick="setMonths(12)" class="month-btn py-2 text-xs font-medium border rounded-lg transition" data-val="12">12 個月</button>
+                <input type="number" id="months" value="6" placeholder="自訂"
+                  class="px-2 py-2 border border-slate-300 rounded-lg text-xs text-center mono focus:ring-2 focus:ring-indigo-500 outline-none" />
+              </div>
+              <p class="text-xs text-slate-400 mt-1">僅允許 3、6、12 個月，其他數值視為錯誤期間。</p>
+            </div>
+
+            <!-- Discount -->
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">基本折扣（0% – 30%）</label>
+              <div class="relative">
+                <input type="number" id="discount" value="17.55" step="0.01" placeholder="0 ~ 30"
+                  class="w-full px-3 py-2 pr-8 border border-slate-300 rounded-lg text-sm mono focus:ring-2 focus:ring-indigo-500 outline-none" />
+                <span class="absolute right-3 top-2 text-slate-400 text-sm">%</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-1">允許範圍 0% 至 30%（含邊界），超範圍或空值不計算。</p>
+            </div>
+
+            <!-- Payment Frequency -->
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-1">付款方式</label>
+              <select id="paymentFreq" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
+                <option value="monthly">月付（期數 = 月數）</option>
+                <option value="quarterly">季付（期數 = 月數 ÷ 3）</option>
+                <option value="annual">年付（限 12 個月，另乘 0.97，分 1 期）</option>
+              </select>
+            </div>
+
+            <!-- Tax Toggle -->
+            <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+              <div>
+                <span class="text-sm font-medium text-slate-700">報價基準（含稅 / 未稅）</span>
+                <p class="text-xs text-slate-400">含稅將於折後金額再乘 1.05（5% 營業稅）</p>
+              </div>
+              <label class="inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="includeTax" checked class="sr-only peer">
+                <div class="relative w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                <span id="taxLabel" class="ms-2 text-xs font-semibold text-indigo-700">含稅 (×1.05)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Approval Limit (Decoupled Check) -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h2 class="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
+            <span class="w-6 h-6 rounded-full bg-slate-800 text-white text-xs flex items-center justify-center">2</span>
+            核准門檻檢查（獨立欄位）
+          </h2>
+          <p class="text-xs text-slate-500 mb-4">此欄位僅做報價後比對，調整門檻絕不影響上方報價金額。</p>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1">核准上限金額（NT$）</label>
+            <input type="number" id="approvalLimit" value="300000"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm mono focus:ring-2 focus:ring-slate-700 outline-none" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Results & Breakdown -->
+      <div class="lg:col-span-7 space-y-6">
+        <!-- Error / Invalid Quote Banner -->
+        <div id="invalidBanner" class="hidden bg-rose-50 border-l-4 border-rose-500 p-5 rounded-r-xl shadow-sm">
+          <div class="flex items-start gap-3">
+            <svg class="w-6 h-6 text-rose-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <h3 class="text-base font-bold text-rose-900">不產生有效報價（輸入驗證失敗）</h3>
+              <p class="text-sm text-rose-700 mt-1">偵測到以下違反報價規格的參數，系統已阻斷計算：</p>
+              <ul id="errorList" class="list-disc list-inside text-sm text-rose-800 font-medium mt-2 space-y-1"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Valid Result Container -->
+        <div id="validResultContainer" class="space-y-6">
+          <!-- Approval Gate Status Card -->
+          <div id="approvalCard" class="rounded-xl p-5 border shadow-sm transition-all">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <span id="approvalBadge" class="inline-block px-2.5 py-0.5 text-xs font-bold rounded-full mb-2"></span>
+                <h3 id="approvalTitle" class="text-lg font-bold"></h3>
+                <p id="approvalDesc" class="text-sm mt-1"></p>
+              </div>
+              <div class="text-right shrink-0">
+                <div class="text-xs opacity-75">與核准上限差額</div>
+                <div id="approvalDiff" class="text-xl font-bold mono mt-0.5"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pricing Summary Card -->
+          <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h3 class="text-base font-bold text-slate-800 mb-4">報價計算明細</h3>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+              <div class="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                <div class="text-xs text-slate-500">稅前總額（四捨五入）</div>
+                <div id="preTaxTotal" class="text-xl font-bold text-slate-800 mono mt-1">NT$ 0</div>
+              </div>
+              <div class="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                <div class="text-xs text-slate-500">含稅總額（×1.05 四捨五入）</div>
+                <div id="taxIncTotal" class="text-xl font-bold text-slate-800 mono mt-1">NT$ 0</div>
+              </div>
+              <div class="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
+                <div class="text-xs text-indigo-700 font-medium">採計報價總額（送審基準）</div>
+                <div id="finalQuoteTotal" class="text-2xl font-bold text-indigo-900 mono mt-1">NT$ 0</div>
+              </div>
+            </div>
+
+            <!-- Formula Audit Trail -->
+            <div class="bg-slate-900 text-slate-200 rounded-lg p-4 text-xs mono space-y-1.5 overflow-x-auto">
+              <div class="text-slate-400">// 公式計算軌跡 (Audit Trail)</div>
+              <div id="formulaStep1"></div>
+              <div id="formulaStep2"></div>
+              <div id="formulaStep3"></div>
+            </div>
+          </div>
+
+          <!-- Installment Schedule Card -->
+          <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h3 class="text-base font-bold text-slate-800">分期付款與尾差分配表</h3>
+                <p class="text-xs text-slate-500 mt-0.5">前 N-1 期取整數下界 ⌊總額 ÷ 期數⌋，最後一期補齊尾差</p>
+              </div>
+              <span id="installmentSummaryBadge" class="px-3 py-1 bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg mono"></span>
+            </div>
+
+            <div class="overflow-x-auto max-h-64 border border-slate-200 rounded-lg">
+              <table class="w-full text-sm text-left">
+                <thead class="bg-slate-50 text-slate-600 text-xs uppercase sticky top-0 border-b border-slate-200">
+                  <tr>
+                    <th class="px-4 py-2.5">期別</th>
+                    <th class="px-4 py-2.5">計算邏輯</th>
+                    <th class="px-4 py-2.5 text-right">本期應付金額</th>
+                  </tr>
+                </thead>
+                <tbody id="installmentTableBody" class="divide-y divide-slate-100 mono text-xs">
+                </tbody>
+                <tfoot class="bg-slate-50 font-bold text-slate-800 border-t border-slate-200 mono text-xs">
+                  <tr>
+                    <td colspan="2" class="px-4 py-2.5">各期合計（驗證須完全等於採計報價總額）</td>
+                    <td id="installmentSumCheck" class="px-4 py-2.5 text-right text-indigo-700"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Regression Test Cases Matrix (Q01 - Q11) -->
+    <div class="mt-10 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-slate-800">回歸測試案例庫（Q01 – Q11 一鍵驗證）</h2>
+          <p class="text-xs text-slate-500">點擊任一案例即可將參數載入上方檢核器，驗證金額計算、邊界防呆與核准門檻邏輯。</p>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-50 border-y border-slate-200 text-slate-600">
+              <th class="py-2.5 px-3">案例編號</th>
+              <th class="py-2.5 px-3">測試情境說明</th>
+              <th class="py-2.5 px-3">輸入參數</th>
+              <th class="py-2.5 px-3">預期行為 / 驗證重點</th>
+              <th class="py-2.5 px-3 text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody id="testCaseTableBody" class="divide-y divide-slate-100">
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 內建測試案例定義 (涵蓋 Q01 - Q11 典型回歸與邊界情境)
+    const TEST_CASES = [
+      {
+        id: 'Q01',
+        desc: '基礎方案標準月付（未稅）',
+        params: { fee: 30000, months: 3, discount: 0, freq: 'monthly', tax: false, limit: 300000 },
+        expected: '稅前 NT$90,000，分 3 期各 NT$30,000'
+      },
+      {
+        id: 'Q02',
+        desc: '進階方案季付含尾差測試（含稅）',
+        params: { fee: 60000, months: 6, discount: 10, freq: 'quarterly', tax: true, limit: 300000 },
+        expected: '含稅 NT$340,200，分 2 季各 NT$170,100'
+      },
+      {
+        id: 'Q03',
+        desc: '客製方案年付 12 月雙重折扣（0.97 係數）',
+        params: { fee: 100000, months: 12, discount: 20, freq: 'annual', tax: true, limit: 1000000 },
+        expected: '100,000×12×0.8×0.97×1.05 = NT$977,760，年付 1 期'
+      },
+      {
+        id: 'Q04',
+        desc: 'Q10 基準案例（含稅總額 NT$311,661）',
+        params: { fee: 60000, months: 6, discount: 17.55, freq: 'monthly', tax: true, limit: 300000 },
+        expected: '含稅 NT$311,661；分 6 期：前 5 期 51,943 + 末期 51,946'
+      },
+      {
+        id: 'Q05',
+        desc: '最高折扣邊界 30% 測試（含稅）',
+        params: { fee: 100000, months: 3, discount: 30, freq: 'monthly', tax: true, limit: 300000 },
+        expected: '有效報價：含稅 NT$220,500'
+      },
+      {
+        id: 'Q06',
+        desc: '防呆測試：年付搭配非 12 個月（6 個月）',
+        params: { fee: 60000, months: 6, discount: 0, freq: 'annual', tax: false, limit: 300000 },
+        expected: '不產生有效報價（年付限 12 個月）'
+      },
+      {
+        id: 'Q07',
+        desc: '防呆測試：折扣超過 30% 上限（31%）',
+        params: { fee: 30000, months: 3, discount: 31, freq: 'monthly', tax: false, limit: 300000 },
+        expected: '不產生有效報價（折扣超範圍）'
+      },
+      {
+        id: 'Q08',
+        desc: '防呆測試：錯誤合約期間（5 個月）',
+        params: { fee: 30000, months: 5, discount: 10, freq: 'monthly', tax: false, limit: 300000 },
+        expected: '不產生有效報價（期間只能 3、6、12 月）'
+      },
+      {
+        id: 'Q09',
+        desc: '防呆測試：負月費或空值輸入',
+        params: { fee: -30000, months: 3, discount: 0, freq: 'monthly', tax: false, limit: 300000 },
+        expected: '不產生有效報價（負月費阻斷）'
+      },
+      {
+        id: 'Q10',
+        desc: '核准門檻超限檢查（引用 Q04 含稅對比 NT$300,000）',
+        params: { fee: 60000, months: 6, discount: 17.55, freq: 'monthly', tax: true, limit: 300000 },
+        expected: '超出上限 NT$11,661 → 提示停止承諾、取得核准'
+      },
+      {
+        id: 'Q11',
+        desc: '核准門檻限內檢查（引用 Q01 對比 NT$300,000）',
+        params: { fee: 30000, months: 3, discount: 0, freq: 'monthly', tax: false, limit: 300000 },
+        expected: '在上限內（差額 NT$210,000）→ 註明不代表正式接受報價'
+      }
+    ];
+
+    // DOM Elements
+    const elMonthlyFee = document.getElementById('monthlyFee');
+    const elMonths = document.getElementById('months');
+    const elDiscount = document.getElementById('discount');
+    const elPaymentFreq = document.getElementById('paymentFreq');
+    const elIncludeTax = document.getElementById('includeTax');
+    const elTaxLabel = document.getElementById('taxLabel');
+    const elApprovalLimit = document.getElementById('approvalLimit');
+
+    // Formatting helper
+    const fmt = (num) => 'NT$ ' + Math.round(num).toLocaleString('en-US');
+
+    // Setters for quick buttons
+    function setFee(val) {
+      elMonthlyFee.value = val;
+      calculateQuote();
+    }
+
+    function setMonths(val) {
+      elMonths.value = val;
+      calculateQuote();
+    }
+
+    function loadPreset(type) {
+      if (type === 'Q04') {
+        applyTestCase(TEST_CASES.find(c => c.id === 'Q10'));
+      } else if (type === 'Q01') {
+        applyTestCase(TEST_CASES.find(c => c.id === 'Q11'));
+      } else if (type === 'INVALID') {
+        applyTestCase(TEST_CASES.find(c => c.id === 'Q07'));
+      }
+    }
+
+    function applyTestCase(tc) {
+      elMonthlyFee.value = tc.params.fee;
+      elMonths.value = tc.params.months;
+      elDiscount.value = tc.params.discount;
+      elPaymentFreq.value = tc.params.freq;
+      elIncludeTax.checked = tc.params.tax;
+      elApprovalLimit.value = tc.params.limit;
+      calculateQuote();
+    }
+
+    // Core Pricing & Validation Engine
+    function calculateQuote() {
+      const rawFee = elMonthlyFee.value.trim();
+      const rawMonths = elMonths.value.trim();
+      const rawDiscount = elDiscount.value.trim();
+      const freq = elPaymentFreq.value;
+      const includeTax = elIncludeTax.checked;
+      const approvalLimit = parseFloat(elApprovalLimit.value) || 0;
+
+      // Update UI badges for buttons & tax toggle
+      elTaxLabel.textContent = includeTax ? '含稅 (×1.05)' : '未稅 (×1.00)';
+      elTaxLabel.className = includeTax
+        ? 'ms-2 text-xs font-semibold text-indigo-700'
+        : 'ms-2 text-xs font-semibold text-slate-500';
+
+      document.querySelectorAll('.fee-btn').forEach(btn => {
+        const isMatch = Number(btn.dataset.val) === Number(rawFee) && rawFee !== '';
+        btn.className = isMatch
+          ? 'fee-btn py-1.5 px-2 text-xs font-semibold border border-indigo-600 bg-indigo-50 text-indigo-700 rounded-lg transition'
+          : 'fee-btn py-1.5 px-2 text-xs font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition';
+      });
+
+      document.querySelectorAll('.month-btn').forEach(btn => {
+        const isMatch = Number(btn.dataset.val) === Number(rawMonths) && rawMonths !== '';
+        btn.className = isMatch
+          ? 'month-btn py-2 text-xs font-semibold border border-indigo-600 bg-indigo-50 text-indigo-700 rounded-lg transition'
+          : 'month-btn py-2 text-xs font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition';
+      });
+
+      // 1. Validation Rules
+      const errors = [];
+      const fee = Number(rawFee);
+      const months = Number(rawMonths);
+      const discountPct = Number(rawDiscount);
+
+      if (rawFee === '' || isNaN(fee)) {
+        errors.push('月費不可為空值。');
+      } else if (fee < 0) {
+        errors.push(`月費不可為負數（目前輸入：${fee}）。`);
+      }
+
+      if (rawMonths === '' || isNaN(months) || ![3, 6, 12].includes(months)) {
+        errors.push(`合約期間只能為 3、6 或 12 個月（目前輸入：${rawMonths || '空值'}）。`);
+      }
+
+      if (rawDiscount === '' || isNaN(discountPct)) {
+        errors.push('基本折扣不可為空值。');
+      } else if (discountPct < 0 || discountPct > 30) {
+        errors.push(`基本折扣必須介於 0% 至 30% 之間（目前輸入：${discountPct}%）。`);
+      }
+
+      if (freq === 'annual' && months !== 12) {
+        errors.push('「年付」僅限合約期間為 12 個月時選用。');
+      }
+
+      const invalidBanner = document.getElementById('invalidBanner');
+      const validContainer = document.getElementById('validResultContainer');
+
+      if (errors.length > 0) {
+        invalidBanner.classList.remove('hidden');
+        validContainer.classList.add('hidden');
+        document.getElementById('errorList').innerHTML = errors.map(e => `<li>${e}</li>`).join('');
+        return;
+      }
+
+      invalidBanner.classList.add('hidden');
+      validContainer.classList.remove('hidden');
+
+      // 2. Pricing Calculation
+      const discountRate = discountPct / 100;
+      const baseAmount = fee * months * (1 - discountRate);
+      const annualFactor = (freq === 'annual' && months === 12) ? 0.97 : 1.0;
+      const preTaxRaw = baseAmount * annualFactor;
+      const taxIncRaw = preTaxRaw * 1.05;
+
+      const preTaxTotal = Math.round(preTaxRaw);
+      const taxIncTotal = Math.round(taxIncRaw);
+      const finalQuoteTotal = includeTax ? taxIncTotal : preTaxTotal;
+
+      // Update Summary Figures
+      document.getElementById('preTaxTotal').textContent = fmt(preTaxTotal);
+      document.getElementById('taxIncTotal').textContent = fmt(taxIncTotal);
+      document.getElementById('finalQuoteTotal').textContent = fmt(finalQuoteTotal);
+
+      // Update Audit Trail
+      document.getElementById('formulaStep1').textContent =
+        `1. 折後小計 = ${fee.toLocaleString()} × ${months}月 × (1 - ${discountPct}%) = ${baseAmount.toLocaleString('en-US', {maximumFractionDigits: 4})}`;
+      document.getElementById('formulaStep2').textContent =
+        `2. 年付係數 = × ${annualFactor} → 稅前精確值 ${preTaxRaw.toLocaleString('en-US', {maximumFractionDigits: 4})} (四捨五入: ${preTaxTotal.toLocaleString()})`;
+      document.getElementById('formulaStep3').textContent =
+        `3. 含稅計算 = ${preTaxRaw.toLocaleString('en-US', {maximumFractionDigits: 4})} × 1.05 = ${taxIncRaw.toLocaleString('en-US', {maximumFractionDigits: 4})} (四捨五入: ${taxIncTotal.toLocaleString()})`;
+
+      // 3. Installments & Remainder Calculation
+      let periods = 1;
+      let freqText = '年付';
+      if (freq === 'monthly') {
+        periods = months;
+        freqText = '月付';
+      } else if (freq === 'quarterly') {
+        periods = months / 3;
+        freqText = '季付';
+      }
+
+      const regularAmount = Math.floor(finalQuoteTotal / periods);
+      const lastAmount = finalQuoteTotal - regularAmount * (periods - 1);
+
+      document.getElementById('installmentSummaryBadge').textContent = `${freqText}｜共 ${periods} 期`;
+
+      const tbody = document.getElementById('installmentTableBody');
+      let rowsHtml = '';
+      let sumCheck = 0;
+
+      for (let i = 1; i <= periods; i++) {
+        const isLast = i === periods;
+        const amount = isLast ? lastAmount : regularAmount;
+        sumCheck += amount;
+
+        let logicDesc = '';
+        if (periods === 1) {
+          logicDesc = '單期一次付清（等於採計報價總額）';
+        } else if (!isLast) {
+          logicDesc = `⌊${finalQuoteTotal.toLocaleString()} ÷ ${periods}⌋ 整數下界`;
+        } else {
+          const remainder = lastAmount - regularAmount;
+          logicDesc = remainder === 0
+            ? '末期結算（無尾差）'
+            : `末期補尾差（含 +NT$${remainder.toLocaleString()} 尾差）`;
+        }
+
+        rowsHtml += `
+          <tr class="${isLast && periods > 1 ? 'bg-indigo-50/40 font-semibold text-slate-900' : 'text-slate-700'}">
+            <td class="px-4 py-2">第 ${i} 期 ${isLast && periods > 1 ? '<span class="ml-1 text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">末期</span>' : ''}</td>
+            <td class="px-4 py-2 text-slate-500 font-sans">${logicDesc}</td>
+            <td class="px-4 py-2 text-right">${fmt(amount)}</td>
+          </tr>
+        `;
+      }
+      tbody.innerHTML = rowsHtml;
+      document.getElementById('installmentSumCheck').textContent = `${fmt(sumCheck)} (${sumCheck === finalQuoteTotal ? '✓ 吻合' : '✗ 異常'})`;
+
+      // 4. Approval Threshold Gate Check (Strictly Decoupled)
+      const diff = finalQuoteTotal - approvalLimit;
+      const approvalCard = document.getElementById('approvalCard');
+      const approvalBadge = document.getElementById('approvalBadge');
+      const approvalTitle = document.getElementById('approvalTitle');
+      const approvalDesc = document.getElementById('approvalDesc');
+      const approvalDiff = document.getElementById('approvalDiff');
+
+      if (diff > 0) {
+        approvalCard.className = 'rounded-xl p-5 border border-amber-300 bg-amber-50 text-amber-950 shadow-sm transition-all';
+        approvalBadge.className = 'inline-block px-2.5 py-0.5 text-xs font-bold rounded-full mb-2 bg-amber-200 text-amber-900';
+        approvalBadge.textContent = '超出核准上限（OVER LIMIT）';
+        approvalTitle.textContent = '停止對外承諾，請先取得核准';
+        approvalDesc.textContent = `採計報價總額（${fmt(finalQuoteTotal)}）已超過設定的核准上限（${fmt(approvalLimit)}）。請勿對客戶做出正式報價承諾，須依程序送交權責主管核准。`;
+        approvalDiff.className = 'text-xl font-bold mono mt-0.5 text-rose-700';
+        approvalDiff.textContent = `+${fmt(diff)}`;
+      } else {
+        approvalCard.className = 'rounded-xl p-5 border border-emerald-300 bg-emerald-50 text-emerald-950 shadow-sm transition-all';
+        approvalBadge.className = 'inline-block px-2.5 py-0.5 text-xs font-bold rounded-full mb-2 bg-emerald-200 text-emerald-900';
+        approvalBadge.textContent = '未超過核准上限（WITHIN LIMIT）';
+        approvalTitle.textContent = '本案例上限內（不代表正式接受報價）';
+        approvalDesc.textContent = `採計報價總額（${fmt(finalQuoteTotal)}）未超過核准上限（${fmt(approvalLimit)}）。請注意：此結果僅表示金額在本案例門檻內，並不代表客戶或公司已正式接受報價。`;
+        approvalDiff.className = 'text-xl font-bold mono mt-0.5 text-emerald-700';
+        approvalDiff.textContent = diff === 0 ? 'NT$ 0 (切齊上限)' : `-${fmt(Math.abs(diff))}`;
+      }
+    }
+
+    // Render Regression Test Table
+    function renderTestCases() {
+      const tbody = document.getElementById('testCaseTableBody');
+      tbody.innerHTML = TEST_CASES.map((tc, idx) => {
+        const freqMap = { monthly: '月付', quarterly: '季付', annual: '年付' };
+        const paramStr = `月費 ${tc.params.fee.toLocaleString()} / ${tc.params.months}月 / 折${tc.params.discount}% / ${freqMap[tc.params.freq]} / ${tc.params.tax ? '含稅' : '未稅'} / 上限${tc.params.limit.toLocaleString()}`;
+        return `
+          <tr class="hover:bg-slate-50 transition">
+            <td class="py-2.5 px-3 font-bold mono text-indigo-700">${tc.id}</td>
+            <td class="py-2.5 px-3 font-medium text-slate-800">${tc.desc}</td>
+            <td class="py-2.5 px-3 mono text-slate-500">${paramStr}</td>
+            <td class="py-2.5 px-3 text-slate-600">${tc.expected}</td>
+            <td class="py-2.5 px-3 text-right">
+              <button onclick="applyTestCase(TEST_CASES[${idx}])" class="px-2.5 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-medium rounded border border-indigo-200 transition">
+                載入驗證
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Bind Event Listeners
+    [elMonthlyFee, elMonths, elDiscount, elPaymentFreq, elIncludeTax, elApprovalLimit].forEach(el => {
+      el.addEventListener('input', calculateQuote);
+      el.addEventListener('change', calculateQuote);
+    });
+
+    // Initialize
+    renderTestCases();
+    calculateQuote();
+  </script>
+</body>
+</html>
